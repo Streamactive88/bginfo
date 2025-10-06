@@ -1,2 +1,2 @@
 # bginfo
-BGinfo for Clientele
+BGINfo Support
