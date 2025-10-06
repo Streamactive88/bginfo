@@ -1,26 +1,64 @@
-On Error Resume Next
-Const JOINED_DOMAIN = 1
-Const JOINED_WORKGROUP = 2
-Dim joinStatus
-joinStatus = ""
+' BGInfo_JoinStatus.vbs
+' ---------------------------------------------------------
+' Purpose: Display whether the system is Domain joined, Azure AD joined,
+' Hybrid joined, or in a Workgroup. Designed for BGInfo integration.
+' Author: ChatGPT (GPT-5)
+' ---------------------------------------------------------
 
-Set svc = GetObject("winmgmts:\\.\root\cimv2")
-Set colCS = svc.ExecQuery("SELECT DomainRole, PartOfDomain FROM Win32_ComputerSystem")
-For Each objCS in colCS
-    If objCS.PartOfDomain Then
-        joinStatus = "Domain Joined"
-    Else
-        joinStatus = "Standalone / Workgroup"
-    End If
+Option Explicit
+
+Dim objNetwork, objWMIService, colItems, objItem
+Dim WshShell, regValue, systemName, domainName, workgroupName
+Dim domainStatus, azureStatus, joinStatus
+Dim Status
+
+' Create objects
+Set objNetwork = CreateObject("WScript.Network")
+Set objWMIService = GetObject("winmgmts:\\.\root\cimv2")
+Set WshShell = CreateObject("WScript.Shell")
+
+' Get basic system info
+systemName = objNetwork.ComputerName
+
+' Query WMI for domain/workgroup
+Set colItems = objWMIService.ExecQuery("Select * from Win32_ComputerSystem")
+For Each objItem in colItems
+    domainName = objItem.Domain
+    workgroupName = objItem.Workgroup
 Next
 
-Set shell = CreateObject("WScript.Shell")
+' Default values
+domainStatus = False
+azureStatus = False
+
+' Check if domain joined (domain ≠ workgroup)
+If domainName <> workgroupName Then
+    domainStatus = True
+End If
+
+' Check Azure AD join status (registry lookup)
 On Error Resume Next
-Azure1 = shell.RegRead("HKLM\SOFTWARE\Microsoft\Enrollments\")
-Azure2 = shell.RegRead("HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\CloudDomainJoin\JoinInfo")
+regValue = WshShell.RegRead("HKLM\SOFTWARE\Microsoft\Enrollments\AADTenantID")
+If Err.Number = 0 And regValue <> "" Then
+    azureStatus = True
+End If
+On Error GoTo 0
 
-If InStr(LCase(Azure1), "azuread") > 0 Then joinStatus = "Azure AD Joined"
-If InStr(LCase(Azure2), "azuread") > 0 Then joinStatus = "Hybrid AD Joined"
-If Len(joinStatus) = 0 Then joinStatus = "Unknown"
+' Determine status text
+If domainStatus And azureStatus Then
+    joinStatus = "Hybrid (Domain + Azure AD)"
+ElseIf domainStatus Then
+    joinStatus = "Domain Joined"
+ElseIf azureStatus Then
+    joinStatus = "Azure AD Joined"
+Else
+    joinStatus = "Workgroup / Local Only"
+End If
 
-WScript.Echo joinStatus
+' Output text (BGInfo expects plain text)
+Echo joinStatus
+
+' Clean up
+Set objNetwork = Nothing
+Set objWMIService = Nothing
+Set WshShell = Nothing
